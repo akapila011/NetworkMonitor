@@ -37,8 +37,8 @@ namespace TestConsole
 		        secure.AppendChar(c);
 	        }
 
-	        var subject = "Hello from your New Postman!";
-	        var body = "Hello,\n\nThis is your new Postman delivery account used for sending messages from apps.\n\nAll the Best\nPostman";
+	        var subject = "";
+	        var body = "";
 
 	        using (var client = new Emailo(sender, secure, sendCallback, "smtp.gmail.com"))
 	        {
