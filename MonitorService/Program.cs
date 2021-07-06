@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.EventLog;
 using MonitorService.Config;
 
 namespace MonitorService
@@ -24,7 +26,13 @@ namespace MonitorService
 	            })
                 .ConfigureServices((hostContext, services) =>
                 {
-                    services.AddHostedService<Worker>();
+                    services.AddHostedService<Worker>()
+                    //.ConfigureLogging(configureLogging => configureLogging.AddFilter<EventLogLoggerProvider>(level => level >= LogLevel.Information))
+                    .Configure<EventLogSettings>(config =>
+                        {
+                            config.LogName = "NetworkMonitor Service";
+                            config.SourceName = "NetworkMonitor Service Source";
+                        });
                     services.Configure<AppSettings>(hostContext.Configuration.GetSection("AppSettings"));
                 });
     }
