@@ -41,26 +41,6 @@ namespace MonitorService
 
         public override Task StartAsync(CancellationToken cancellationToken)
         {
-	        var trace = new TraceRoute();
-	        foreach (var url in this.settings.Urls)
-	        {
-		        try
-		        {
-			        this.logger.LogInformation($"Tracing {url}");
-			        var hops = trace.Tracert(url, timeout: Convert.ToInt32(this.settings.HopTimeoutMs));
-			        foreach (var hop in hops)
-			        {
-				        this.logger.LogInformation(
-					        $"{hop.HopID} {hop.ReplyTime}ms {hop.ReplyStatus} {hop.Address} ({hop.Hostname}) " +
-					        $"isSlowHop:{hop.IsSlowHop(this.settings.HopSlowThresholdMs)} | {url}");
-			        }
-		        }
-		        catch (Exception ex)
-		        {
-			        this.logger.LogError($"Something went wrong while tracing {url} : {ex.Message}");
-		        }
-	        }
-
 	        this.logger.LogInformation($"Service starting with validated settings (ShouldSendEmailReports = {this.settings.ShouldSendEmail})");
 	        return base.StartAsync(cancellationToken);
         }
@@ -70,6 +50,25 @@ namespace MonitorService
             while (!stoppingToken.IsCancellationRequested)
             {
                 this.logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
+                var trace = new TraceRoute();
+		        foreach (var url in this.settings.Urls)
+		        {
+			        try
+			        {
+				        this.logger.LogInformation($"Tracing {url}");
+				        var hops = trace.Tracert(url, timeout: Convert.ToInt32(this.settings.HopTimeoutMs));
+				        foreach (var hop in hops)
+				        {
+					        this.logger.LogInformation(
+						        $"{hop.HopID} {hop.ReplyTime}ms {hop.ReplyStatus} {hop.Address} ({hop.Hostname}) " +
+						        $"isSlowHop:{hop.IsSlowHop(this.settings.HopSlowThresholdMs)} | {url}");
+				        }
+			        }
+			        catch (Exception ex)
+			        {
+				        this.logger.LogError($"Something went wrong while tracing {url} : {ex.Message}");
+			        }
+		        }
 
                 await Task.Delay(this.settings.Interval, stoppingToken);
             }
