@@ -14,8 +14,4 @@
     <ProjectReference Include="..\CommunicationTools\CommunicationTools.csproj" />
     <ProjectReference Include="..\NetworkTools\NetworkTools.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Services" />
-  </ItemGroup>
 </Project>
