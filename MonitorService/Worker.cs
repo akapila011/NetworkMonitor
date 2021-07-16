@@ -7,8 +7,10 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using CommunicationTools;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using MonitorService.Config;
+using MonitorService.Services;
 using NetworkTools;
 
 namespace MonitorService
@@ -49,26 +51,15 @@ namespace MonitorService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                this.logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
-                var trace = new TraceRoute();
-		        foreach (var url in this.settings.Urls)
-		        {
-			        try
-			        {
-				        this.logger.LogInformation($"Tracing {url}");
-				        var hops = trace.Tracert(url, timeout: Convert.ToInt32(this.settings.HopTimeoutMs));
-				        foreach (var hop in hops)
-				        {
-					        this.logger.LogInformation(
-						        $"{hop.HopID} {hop.ReplyTime}ms {hop.ReplyStatus} {hop.Address} ({hop.Hostname}) " +
-						        $"isSlowHop:{hop.IsSlowHop(this.settings.HopSlowThresholdMs)} | {url}");
-				        }
-			        }
-			        catch (Exception ex)
-			        {
-				        this.logger.LogError($"Something went wrong while tracing {url} : {ex.Message}");
-			        }
-		        }
+	            var currentTime = DateTimeOffset.Now;
+                this.logger.LogInformation("Worker running at: {time}", currentTime);
+
+                using (var scope = this.services.CreateScope())
+                {
+	                var networkService = scope.ServiceProvider.GetRequiredService<INetworkService>();
+	                var traceResults = networkService.RunNetworkTraces(this.settings.Urls, Convert.ToInt32(this.settings.HopTimeoutMs), this.settings.HopSlowThresholdMs);
+	                networkService.SaveNetworkTraceReport(currentTime, traceResults);
+                }
 
                 await Task.Delay(this.settings.Interval, stoppingToken);
             }
