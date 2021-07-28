@@ -2,6 +2,7 @@
 using System.ComponentModel;
 using System.Security;
 using System.Threading;
+using System.Threading.Tasks;
 using NetworkTools;
 using CommunicationTools;
 
@@ -12,8 +13,8 @@ namespace TestConsole
         static void Main(string[] args)
         {
             Console.WriteLine("Hello World!");
-            TestTraceRoute();
-            // TestSendEmail();
+            // TestTraceRoute();
+            // await TestSendEmail();
         }
 
         static void TestTraceRoute()
@@ -26,7 +27,7 @@ namespace TestConsole
 	        }
         }
 
-        static void TestSendEmail()
+        async static Task TestSendEmail()
         {
 	        var sender = "";
 	        var unsecurePassword = "";
@@ -37,17 +38,15 @@ namespace TestConsole
 		        secure.AppendChar(c);
 	        }
 
-	        var subject = "";
-	        var body = "";
+	        var subject = "Hello";
+	        var body = "Test body";
 
 	        using (var client = new Emailo(sender, secure, sendCallback, "smtp.gmail.com"))
 	        {
-		        client.SendEmailAsync(receiver, subject, body);  // because this is async any operations after .Dispose() will be cancelled so use carefully
+		        await client.SendEmailAsync(receiver, subject, body);  // because this is async any operations after .Dispose() will be cancelled so use carefully
 		        Console.WriteLine("Sleeping for 5 seconds");
 		        Thread.Sleep(5000);
 	        }
-
-
         }
 
         private static void sendCallback(object sender, AsyncCompletedEventArgs args)

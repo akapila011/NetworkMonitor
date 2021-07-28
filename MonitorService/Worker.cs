@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
@@ -58,7 +59,10 @@ namespace MonitorService
                 {
 	                var networkService = scope.ServiceProvider.GetRequiredService<INetworkService>();
 	                var traceResults = networkService.RunNetworkTraces(this.settings.Urls, Convert.ToInt32(this.settings.HopTimeoutMs), this.settings.HopSlowThresholdMs);
-	                networkService.SaveNetworkTraceReport(currentTime, traceResults);
+	                var (saveFile, dailyEmailStatus, weeklyEmailStatus) = await networkService.SaveNetworkTraceReport(
+		                this.settings ,currentTime, traceResults,
+		                this.settings.EmailReport.Frequency.Contains("Daily"),
+		                this.settings.EmailReport.Frequency.Contains("Weekly"));
                 }
 
                 await Task.Delay(this.settings.Interval, stoppingToken);

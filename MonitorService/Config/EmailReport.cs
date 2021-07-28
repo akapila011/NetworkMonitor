@@ -17,7 +17,18 @@ namespace MonitorService.Config
 		/// <summary>
 		/// Sender account's password
 		/// </summary>
-		public SecureString SenderPassword { get; set; }
+		public string SenderPassword { get; set; }
+
+		public SecureString GetSecureSenderPassword()
+		{
+			var secure = new SecureString();
+            foreach(var c in this.SenderPassword)
+            {
+                secure.AppendChar(c);
+            }
+
+            return secure;
+		}
 
 		/// <summary>
 		/// The host used for sending emails

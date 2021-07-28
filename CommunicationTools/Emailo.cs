@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Mail;
 using System.Security;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace CommunicationTools
 {
@@ -24,7 +25,7 @@ namespace CommunicationTools
 			this.client.SendCompleted += new SendCompletedEventHandler(sendCompletedHandler);
 		}
 
-		public void SendEmailAsync(string to, string subject, string body,
+		public async Task SendEmailAsync(string to, string subject, string body,
 			MailPriority priority = MailPriority.Normal, bool isBodyHtml = false)
 		{
 			var receiverAddress = new MailAddress(to);
@@ -37,8 +38,7 @@ namespace CommunicationTools
 			mail.Priority = priority;
 			mail.DeliveryNotificationOptions = DeliveryNotificationOptions.OnFailure;  // send back Non-Delivery report
 
-			var userToken = "sending";  // will get updated
-			client.SendAsync(mail, userToken);
+			await client.SendMailAsync(mail);
 		}
 
 		private static void sendCallback(object sender, AsyncCompletedEventArgs args)

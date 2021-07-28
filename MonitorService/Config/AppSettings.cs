@@ -50,7 +50,7 @@ namespace MonitorService.Config
 				errors.Add("Must have at least 1 url to run network checks against");
 			}
 
-			if (Directory.Exists(DataFolder))
+			if (!Directory.Exists(DataFolder))
 			{
 				errors.Add("Must provide a valid path to a folder to store data");
 			}

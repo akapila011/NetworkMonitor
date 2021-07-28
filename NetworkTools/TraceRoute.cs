@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace NetworkTools
 {
@@ -19,6 +20,7 @@ namespace NetworkTools
         /// <returns>A list of hops with details of the request made</returns>
         public IEnumerable<TracertEntry> Tracert(string host, int maxHops = 30, int timeout = 10000)
         {
+	        var hops = new List<TracertEntry>(maxHops);
             // Max hops should be at least one or else there won't be any data to return.
             if (maxHops < 1)
                 throw new ArgumentException("Max hops can't be lower than 1.");
@@ -43,19 +45,21 @@ namespace NetworkTools
 				}
 
 	            // Return out TracertEntry object with all the information about the hop.
-	            yield return new TracertEntry()
+	            hops.Add(new TracertEntry()
 	            {
-	                HopID = pingOptions.Ttl,
-	                Address = reply.Address == null ? "N/A" : reply.Address.ToString(),
-	                Hostname = hostname,
-	                ReplyTime = pingReplyTime.ElapsedMilliseconds,
-	                ReplyStatus = reply.Status
-	            };
+		            HopID = pingOptions.Ttl,
+		            Address = reply.Address == null ? "N/A" : reply.Address.ToString(),
+		            Hostname = hostname,
+		            ReplyTime = pingReplyTime.ElapsedMilliseconds,
+		            ReplyStatus = reply.Status
+	            });
 
                 pingOptions.Ttl++;
                 pingReplyTime.Reset();
             }
             while (reply.Status != IPStatus.Success && pingOptions.Ttl <= maxHops);
+
+            return hops;
         }
     }
 }
