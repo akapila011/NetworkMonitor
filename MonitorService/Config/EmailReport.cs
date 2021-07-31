@@ -41,6 +41,19 @@ namespace MonitorService.Config
 		public uint SmtpPort { get; set; }
 
 		/// <summary>
+		/// After what 24 hour time should be sent the report 00-23
+		/// used for daily email
+		/// also used for weekly on which day at what time
+		/// </summary>
+		public uint HourSendReport { get; set; } = 20;
+
+		/// <summary>
+		/// On what day of the week should we send the email report
+		/// Only applies to weekly report
+		/// </summary>
+		public string DaySendReport { get; set; } = "Saturday";
+
+		/// <summary>
 		/// The email address to be sent to
 		/// TODO: need to find out how to send to multiple + cc
 		/// </summary>

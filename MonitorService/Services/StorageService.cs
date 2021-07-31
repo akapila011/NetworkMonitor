@@ -17,26 +17,43 @@ namespace MonitorService.Services
 			this.dateTimeOffset = dateTimeOffset;
 		}
 
-		public async Task SaveNetworkEntriesCsv(
+		public async Task SaveNetworkTraceEntriesCsv(
 			string csvPath,
 			IList<(string url, int totalHops, int hopTimeouts, int slowHops, bool success)> entries)
 		{
-
+			string headers = null;
 			if (!File.Exists(csvPath)) // need to write header if doesn't exist
 			{
-				var headers = "time,url,totalHops,hopTimeouts,slowHops,success";
-				await File.WriteAllTextAsync(csvPath, $"{headers}\n");
+				headers = "time,url,totalHops,hopTimeouts,slowHops,success";
 			}
 
+			var rows = new string[entries.Count];
+			var count = 0;
 			foreach (var entry in entries)
 			{
 				var (url, totalHops, hopTimeouts, slowHops, success) = entry;
 				var row = $"{this.dateTimeOffset},{url},{totalHops},{hopTimeouts},{slowHops},{success}";
+				rows[count] = row;
+			}
+
+			await SaveCsvFile(csvPath, rows, headers: headers);
+		}
+
+		private async Task SaveCsvFile(string csvPath, string[] dataRows, string headers = null)
+		{
+			if (dataRows?.Length == 0) throw new ArgumentException("Cannot write a csv file with no lines");
+			if (!string.IsNullOrEmpty(headers))
+			{
+				await File.WriteAllTextAsync(csvPath, $"{headers}\n");
+			}
+
+			foreach (var row in dataRows)
+			{
 				await File.AppendAllTextAsync(csvPath, $"{row}\n");
 			}
 		}
 
-		public (string weekPath, string dayPath, string recordFilePath) GetWeekFilePaths()
+		public (string weekPath, string dayPath, int year, int weekNo, string dayOfWeek) GetWeekFilePaths()
 		{
 			// First check year folder exists
 			var year = this.dateTimeOffset.Year;
@@ -50,10 +67,18 @@ namespace MonitorService.Services
 			var dayOfWeek = this.dateTimeOffset.DayOfWeek;
 			var dayPath = Directory.CreateDirectory(Path.Combine(weekPath.FullName, dayOfWeek.ToString()));
 
-			// File Path
-			var recordFilePath = Path.Combine(dayPath.FullName, $"{dayOfWeek.ToString()}.csv");
+			return (weekPath.FullName, dayPath.FullName, year, weekNo, dayOfWeek.ToString());
+		}
 
-			return (weekPath.FullName, dayPath.FullName, recordFilePath);
+		/// <summary>
+		/// Wrapper around C# Path.Combine to avoid unnecesarry Path imports in calling files
+		/// </summary>
+		/// <param name="basePath">e.g. C:\Users</param>
+		/// <param name="suffixPath">example.csv</param>
+		/// <returns>C:\Users\example.csv (also works to combine directory paths)</returns>
+		public static string Combine(string basePath, string suffixPath)
+		{
+			return Path.Combine(basePath, suffixPath);
 		}
 
 		private int GetIso8601WeekOfYear()

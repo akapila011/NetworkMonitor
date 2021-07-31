@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Security;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -53,20 +55,64 @@ namespace MonitorService
             while (!stoppingToken.IsCancellationRequested)
             {
 	            var currentTime = DateTimeOffset.Now;
-                this.logger.LogInformation("Worker running at: {time}", currentTime);
+	            this.logger.LogInformation("Worker running at: {time}", currentTime);
 
-                using (var scope = this.services.CreateScope())
-                {
+	            using (var scope = this.services.CreateScope())
+	            {
 	                var networkService = scope.ServiceProvider.GetRequiredService<INetworkService>();
-	                var traceResults = networkService.RunNetworkTraces(this.settings.Urls, Convert.ToInt32(this.settings.HopTimeoutMs), this.settings.HopSlowThresholdMs);
-	                var (saveFile, dailyEmailStatus, weeklyEmailStatus) = await networkService.SaveNetworkTraceReport(
-		                this.settings ,currentTime, traceResults,
-		                this.settings.EmailReport.Frequency.Contains("Daily"),
-		                this.settings.EmailReport.Frequency.Contains("Weekly"));
-                }
+	                var storage = new StorageService(settings.DataFolder, currentTime);
+	                var (weekPath, dayDirPath, year, weekNo, dayOfWeek) = storage.GetWeekFilePaths();
 
-                await Task.Delay(this.settings.Interval, stoppingToken);
+	                string networkTraceFilePath = null;
+
+	                if (this.settings.Workloads.Contains("TraceRoute"))
+	                {
+		                networkTraceFilePath = await NetworkTraceJobAsync(networkService,
+			                storage, dayDirPath, dayOfWeek);
+	                }
+
+	                // TODO: add workload ping
+
+	                if (this.settings.ShouldSendEmail)
+	                {
+		                await this.HandleSendingEmails(networkService, currentTime, dayDirPath, weekPath, networkTraceFilePath);
+	                }
+
+
+	            }
+                await Task.Delay(this.settings.Interval * 1000, stoppingToken);
             }
+        }
+
+        private async Task<string> NetworkTraceJobAsync(INetworkService networkService, StorageService storage, string dayDirPath, string dayOfWeek)
+        {
+	        var networkTraceFilePath = StorageService.Combine(dayDirPath, $"{dayOfWeek}-networktrace.csv");
+	        var traceResults = networkService.RunNetworkTraces(this.settings.Urls, Convert.ToInt32(this.settings.HopTimeoutMs), this.settings.HopSlowThresholdMs);
+	        await networkService.SaveNetworkTraceReport(storage , networkTraceFilePath, traceResults);
+	        return networkTraceFilePath;
+        }
+
+        private async Task HandleSendingEmails(INetworkService networkService, DateTimeOffset currentTime, string dayDirPath, string weekDirPath, string networkTraceFilePath)
+        {
+	        var dailyEmailPath = Path.Join(dayDirPath, "daily-email.txt");
+	        var weeklyEmailPath = Path.Join(weekDirPath, "weekly-email.txt");
+
+	        var shouldSendDailyEmail = this.settings.EmailReport.Frequency.Contains("Daily") &&
+	                                   currentTime.Hour > this.settings.EmailReport.HourSendReport &&
+	                                   !File.Exists(dailyEmailPath);
+	        var shouldSendWeeklyEmail = this.settings.EmailReport.Frequency.Contains("Weekly") &&
+	                                    currentTime.DayOfWeek.ToString().Equals(this.settings.EmailReport.DaySendReport, StringComparison.OrdinalIgnoreCase) &&
+	                                    currentTime.Hour > this.settings.EmailReport.HourSendReport &&
+	                                    !File.Exists(weeklyEmailPath);
+
+	        using (var client = new Emailo(settings.EmailReport.SenderSmtp, settings.EmailReport.GetSecureSenderPassword(), EmailSendCallback, smtp: settings.EmailReport.SmtpHost, port: Convert.ToInt32(settings.EmailReport.SmtpPort)))
+	        {
+		        if (shouldSendDailyEmail)
+		        {
+			        var dailyEmailStatus = await networkService.TrySendDailyEmail(currentTime, client, this.settings, dailyEmailPath, networkTraceFilePath);
+		        }
+	        }
+
         }
 
         public override async Task StopAsync(CancellationToken cancellationToken)

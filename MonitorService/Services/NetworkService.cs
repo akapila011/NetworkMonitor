@@ -11,19 +11,22 @@ using CommunicationTools;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using MonitorService.Config;
+using MonitorService.DTO;
 using NetworkTools;
 
 namespace MonitorService.Services
 {
 	public interface INetworkService
 	{
-		IList<(string url, int totalHops, int hopTimeouts, int slowHops, IReadOnlyList<long> hopReplyTimes)> RunNetworkTraces(string[] urls, int timeout, long slowThreshold);
-		Task<(string csvPath, string dailyEmailStatus, string weeklyEmailStatus)> SaveNetworkTraceReport(
-			AppSettings settings,
-			DateTimeOffset currentTime,
-			IList<(string url, int totalHops, int hopTimeouts, int slowHops, IReadOnlyList<long> hopReplyTimes)> traceResults,
-			bool trySendDailyEmail,
-			bool trySendWeeklyEmail);
+		TraceEntrySummaryRow[] RunNetworkTraces(string[] urls, int timeout, long slowThreshold);
+		Task SaveNetworkTraceReport(
+			StorageService storage,
+			string filePath,
+			TraceEntrySummaryRow[] traceResults);
+
+		Task<string> TrySendDailyEmail(DateTimeOffset currentTime, Emailo client, AppSettings settings,
+			string dailyEmailPath, string networkTraceFilePath = null);
+
 	}
 
 	public class NetworkService : INetworkService
@@ -35,13 +38,12 @@ namespace MonitorService.Services
 			this.logger = logger;
 		}
 
-		public IList<(string url, int totalHops, int hopTimeouts, int slowHops, IReadOnlyList<long> hopReplyTimes)> RunNetworkTraces(string[] urls, int timeout, long slowThreshold)
+		public TraceEntrySummaryRow[] RunNetworkTraces(string[] urls, int timeout, long slowThreshold)
 		{
-			var results = new List<(string url, int totalHops, int hopTimeouts, int slowHops, IReadOnlyList<long> hopReplyTimes)>(urls.Length);
+			var results = new TraceEntrySummaryRow[urls.Length];
 			var trace = new TraceRoute(); // TODO: DI
 			Parallel.ForEach(urls, (url, state, index) =>
 			{
-				results.Add((null, 0, 0, 0, null)); // hack - we need proper objects returned or we can't create an array, list does not fill the initial capacity
 				try
 				{
 					this.logger.LogInformation($"Tracing {url}");
@@ -61,7 +63,14 @@ namespace MonitorService.Services
 						hopReplyTimes.Add(hop.ReplyTime);
 					}
 
-					results[Convert.ToInt32(index)] = (url, totalHops, hopTimeouts, slowHops, hopReplyTimes.AsReadOnly());
+					results[Convert.ToInt32(index)] = new TraceEntrySummaryRow()
+					{
+						URL = url,
+						TotalHops = totalHops,
+						HopTimeouts = hopTimeouts,
+						SlowHops = slowHops,
+						HopReplyTimes = hopReplyTimes.AsReadOnly()
+					};
 				}
 				catch (Exception ex)
 				{
@@ -70,85 +79,54 @@ namespace MonitorService.Services
 			});
 			return results;
 		}
-		public async Task<(string csvPath, string dailyEmailStatus, string weeklyEmailStatus)> SaveNetworkTraceReport(
-			AppSettings settings,
-			DateTimeOffset currentTime,
-			IList<(string url, int totalHops, int hopTimeouts, int slowHops, IReadOnlyList<long> hopReplyTimes)> traceResults,
-			bool trySendDailyEmail,
-			bool trySendWeeklyEmail
+		public async Task SaveNetworkTraceReport(
+			StorageService storage,
+			string filePath,
+			TraceEntrySummaryRow[] traceResults
 			)
 		{
-			var csvRows = new List<(string url, int totalHops, int hopTimeouts, int slowHops, bool success)>(traceResults.Count);
+			var csvRows = new List<(string url, int totalHops, int hopTimeouts, int slowHops, bool success)>(traceResults.Length);
 			foreach (var traceResult in traceResults)
 			{
-				var (url, totalHops, hopTimeouts, slowHops, hopReplyTimes) = traceResult;
-				var success = !(slowHops >= (totalHops / 4)) || !(hopTimeouts >= 2 && totalHops > 2);
-				csvRows.Add((url, totalHops, hopTimeouts, slowHops, success));
+				var success = !(traceResult.SlowHops >= (traceResult.TotalHops / 4)) || !(traceResult.HopTimeouts >= 2 && traceResult.TotalHops > 2);
+				csvRows.Add((traceResult.URL, traceResult.TotalHops, traceResult.HopTimeouts, traceResult.SlowHops, success));
 				//this.logger.LogInformation($"{currentTime} {url} : hops: {totalHops} | timeouts: {hopTimeouts} | slow hops: {slowHops}");
 			}
 
-			var storage = new StorageService(settings.DataFolder, currentTime);
-			var (weekPath, dayDirPath, recordPath) = storage.GetWeekFilePaths();
-			await storage.SaveNetworkEntriesCsv(recordPath, csvRows);
-
-			var (dailyEmailStatus, weeklyEmailStatus) = (string.Empty, string.Empty);
-			if (settings.ShouldSendEmail)
-			{
-				using (var client = new Emailo(settings.EmailReport.SenderSmtp, settings.EmailReport.GetSecureSenderPassword(), sendCallback, smtp: settings.EmailReport.SmtpHost, port: Convert.ToInt32(settings.EmailReport.SmtpPort)))
-				{
-					dailyEmailStatus = await TrySendDailyEmail(trySendDailyEmail, currentTime, client, dayDirPath, recordPath, settings);
-				}
-			}
-			else
-			{
-				dailyEmailStatus = "Should not send email - settings not configured";
-				weeklyEmailStatus = "Should not send email - settings not configured";
-			}
-
-			return (recordPath, dailyEmailStatus, weeklyEmailStatus);
+			await storage.SaveNetworkTraceEntriesCsv(filePath, csvRows);
 		}
 
-		private async Task<string> TrySendDailyEmail(bool sendDailyEmail, DateTimeOffset currentTime, Emailo client, string dayDirPath, string dailyCsvPath, AppSettings settings)
+		public async Task<string> TrySendDailyEmail(DateTimeOffset currentTime, Emailo client, AppSettings settings, string dailyEmailPath, string networkTraceFilePath = null)
 		{
-			if (!sendDailyEmail)
-			{
-				return "Not supposed to send daily email";
-			}
-
-			if (currentTime.Hour < 14)
-			{
-				return "Daily email reports will be sent after 9 PM";
-			}
-
-			var emailFilePath = Path.Join(dayDirPath, "daily-email.txt");
-			if (File.Exists(emailFilePath))
-			{
-				return $"Email has already been sent for {currentTime.DayOfWeek}";
-			}
 			var monthName = CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(currentTime.Month);
 			var subject = $"Network Monitor Report for {currentTime.DayOfWeek} {monthName} {currentTime.Year}";
-			var body = BuildDailyEmailBody(dailyCsvPath);
+			var body = new StringBuilder("Hello\n");
+			if (!string.IsNullOrEmpty(networkTraceFilePath))
+			{
+				body.Append(this.BuildNetworkTraceDailyBody(networkTraceFilePath));
+			}
 			try
 			{
-				await File.WriteAllTextAsync(emailFilePath, $"{subject}\n\n{body}");
-				await client.SendEmailAsync(settings.EmailReport.To, subject, body, isBodyHtml: true);
+				await File.WriteAllTextAsync(dailyEmailPath, $"{subject}\n\n{body}");
+				await client.SendEmailAsync(settings.EmailReport.To, subject, body.ToString(), isBodyHtml: true);
 			}
 			catch (Exception ex)
 			{
-				File.Delete(emailFilePath);
+				File.Delete(dailyEmailPath);
 				return $"Could not send Daily Email for {subject}";
 			}
 
 			return $"Sending Daily Email for {subject}";
 		}
 
-		private string BuildDailyEmailBody(string dailyCsvPath)
+		private string BuildNetworkTraceDailyBody(string dailyCsvPath)
 		{
-			var body = new StringBuilder("Hello,\n\nFrom Network traces done on this day the following was observed:\n");
+			var body = new StringBuilder("\nNetwork trace routes summary:\n");
 			var file = new StreamReader(dailyCsvPath);
-			int counter = 0;
+			var counter = 0;
 			string line;
 			var (totalRows, totalSuccess) = (0, 0);
+			var urlDataSummary = new Dictionary<string, (int timeouts, int slowHops, int success)>(); // maps a url to counters
 			while((line = file.ReadLine()) != null)
 			{
 				counter++;
@@ -157,16 +135,37 @@ namespace MonitorService.Services
 				if (parts.Length >= 6)
 				{
 					totalRows++;
-					if (parts[5].Equals("true", StringComparison.InvariantCultureIgnoreCase))
+					var successTraceRoute = parts[5].Equals("true", StringComparison.OrdinalIgnoreCase);
+					var url = parts[1];
+					Int32.TryParse( parts[2], out var hopTimeouts);
+					Int32.TryParse( parts[3], out var slowHops);
+					(int timeouts, int slowHops, int success) value = (0, 0, 0);
+					urlDataSummary.TryGetValue(url, out value);
+					value.timeouts += hopTimeouts;
+					value.slowHops += slowHops;
+					if (successTraceRoute)
 					{
+						value.success++;
 						totalSuccess++;
 					}
+
+					urlDataSummary[url] = value;
 				}
 			}
 
-			body.AppendLine($"There were a total of <b>{totalRows}</b> done on this day and " +
+			var filename = Path.GetFileName(dailyCsvPath);
+			body.AppendLine($"There were a total of <b>{totalRows}</b> traces done on this day and " +
 			                $"out of those <b>{totalSuccess}</b> successful ones, and <b>{totalRows - totalSuccess}</b> failures.\n" +
-			                $"The data can be found in {dailyCsvPath}");
+			                "Site summaries:\n");
+			body.AppendLine("<table>\n<thead>\n<tr>\n<th>URL</th><th>Number of Success</th><th>Hop Timeouts</th><th>Slow Hops</th>\n</tr>\n</thead>\n<tbody>");
+			foreach (var entry in urlDataSummary)
+			{
+				var url = entry.Key;
+				var (timeouts, slowHops, success) = entry.Value;
+				body.AppendLine($"<tr><td>{url}</td><td>{success}</td><td>{timeouts}</td><td>{slowHops}</td></tr>\n");
+			}
+			body.AppendLine("</tbody>\n</table>");
+			body.AppendLine($"The data can be found in {filename}");
 
 			return body.ToString();
 		}

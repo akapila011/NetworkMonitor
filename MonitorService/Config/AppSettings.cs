@@ -1,5 +1,7 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace MonitorService.Config
 {
@@ -9,6 +11,12 @@ namespace MonitorService.Config
 		/// Run the network checks after x seconds
 		/// </summary>
 		public int Interval { get; set; }
+
+		/// <summary>
+		/// What tasks to run after every interval
+		/// </summary>
+		public IList<string> Workloads { get; set; } // TODO: move settings for each workload to individual object
+		private ISet<string> ValidWorkloads { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase){"TraceRoute", "Ping"};
 
 		/// <summary>
 		/// The urls to ping/trace
@@ -45,6 +53,11 @@ namespace MonitorService.Config
 				errors.Add("Internal value must be greater than 1 second");
 			}
 
+			// if (this.Workloads.Count == 0 || this.Workloads.Where(w => !this.ValidWorkloads.Contains(w)).Any())
+			// {
+			// 	errors.Add("No valid workloads provided to be run.");
+			// }
+
 			if (this.Urls.Length < 1)
 			{
 				errors.Add("Must have at least 1 url to run network checks against");
@@ -57,7 +70,7 @@ namespace MonitorService.Config
 
 			if (EmailReport != null)
 			{
-				if (EmailReport.Frequency.Length < 1 ||
+				if (EmailReport.Frequency.Length < 1 ||  // TODO: need enums of valid frequencies
 				    string.IsNullOrEmpty(EmailReport.SenderSmtp) ||
 				    EmailReport.SenderSmtp.Length < 1 ||
 				    string.IsNullOrEmpty(EmailReport.To) ||
